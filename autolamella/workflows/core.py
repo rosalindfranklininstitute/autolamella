@@ -41,8 +41,10 @@ from fibsem.detection.detection import (
 )
 from autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem import config as fcfg
-
-from autolamella.workflows.ui import (set_images_ui, update_status_ui, update_detection_ui, update_milling_ui)
+from autolamella.workflows import actions
+from autolamella.workflows.ui import (set_images_ui, update_status_ui, 
+                                      update_detection_ui, update_milling_ui, 
+                                      ask_user)
 
 
 # CORE WORKFLOW STEPS
@@ -79,7 +81,11 @@ def mill_trench(
     
     log_status_message(lamella, "MILL_TRENCH")
 
-    settings.image.hfw = lamella.protocol["trench"]["stages"][0]["hfw"]
+    if "stages" in lamella.protocol["trench"]:
+      hfw = lamella.protocol["trench"]["stages"][0]["hfw"]
+    else:
+        hfw = lamella.protocol["trench"]["hfw"]
+    settings.image.hfw = hfw
     settings.image.filename = f"ref_{lamella.state.stage.name}_start"
     settings.image.save = True
     eb_image, ib_image = acquire.take_reference_images(microscope, settings.image)
@@ -88,7 +94,9 @@ def mill_trench(
     
     # define trench milling stage
     settings.image.beam_type = BeamType.ION
-    stages = patterning.get_milling_stages("trench", lamella.protocol, point=Point.from_dict(lamella.protocol["trench"]["point"]))
+    stages = patterning.get_milling_stages("trench", 
+                                           lamella.protocol, 
+                                           point=Point.from_dict(lamella.protocol["trench"].get("point", {"x":0, "y":0})))
     stages = update_milling_ui(stages, parent_ui,
         msg=f"Press Run Milling to mill the trenches for {lamella._petname}. Press Continue when done.",
         validate=validate,
@@ -292,10 +300,11 @@ def mill_lamella(
     stages = patterning.get_milling_stages("lamella", lamella.protocol, 
                     point=Point.from_dict(lamella.protocol["lamella"]["point"]))
 
+    num_polishing_stages = settings.protocol["options"].get("num_polishing_stages", 1)
     if lamella.state.stage.name == AutoLamellaWaffleStage.MillPolishingCut.name:
-        stages = stages[-1]
+        stages = stages[-num_polishing_stages:]
     else:
-        stages = stages[:-1]
+        stages = stages[:-num_polishing_stages]
 
     if not isinstance(stages, list):
         stages = [stages]
@@ -307,7 +316,7 @@ def mill_lamella(
     update_status_ui(parent_ui, f"{lamella.info} Aligning Reference Images...")
 
     settings.image.save = True
-    settings.image.hfw = fcfg.REFERENCE_HFW_SUPER
+    settings.image.hfw = stages[0].milling.hfw # fcfg.REFERENCE_HFW_SUPER
     settings.image.beam_type = BeamType.ION
     ref_image = FibsemImage.load(os.path.join(lamella.path, f"ref_alignment_ib.tif"))
     _ALIGNMENT_ATTEMPTS = int(settings.protocol["options"].get("alignment_attempts", 1))
@@ -453,8 +462,17 @@ def setup_lamella(
 
     log_status_message(lamella, "ALIGN_LAMELLA")
     update_status_ui(parent_ui, f"{lamella.info} Aligning Lamella...")
-
-    from autolamella.workflows import actions
+    
+    milling_angle = settings.protocol["options"].get("lamella_tilt_angle", 18)
+    stage_position = microscope.get_stage_position()
+    is_close = np.isclose(np.deg2rad(milling_angle), stage_position.t)
+    if not is_close and validate and method == "autolamella-on-grid":
+        ret = ask_user(parent_ui=parent_ui, 
+                    msg=f"The current tilt ({np.rad2deg(stage_position.t)} deg) does not match the specified milling tilt ({milling_angle} deg). Press Tilt to go to the milling angle.", 
+                    pos="Tilt", neg="Skip")
+        if ret:
+            actions.move_to_lamella_angle(microscope, settings.protocol)
+            
     if method != "autolamella-on-grid":
         actions.move_to_lamella_angle(microscope, settings.protocol)
 
@@ -469,11 +487,6 @@ def setup_lamella(
         lamella = align_feature_coincident(microscope, settings, lamella, parent_ui, validate)
 
     log_status_message(lamella, "SETUP_PATTERNS")
-    settings.image.hfw = fcfg.REFERENCE_HFW_SUPER
-    settings.image.filename = f"ref_{lamella.state.stage.name}_start"
-    settings.image.save = True
-    eb_image, ib_image = acquire.take_reference_images(microscope, settings.image)
-    set_images_ui(parent_ui, eb_image, ib_image)
 
     # TODO: copy the entire milling protocol into each lamella protocol beforehand
     # load the default protocol unless in lamella protocol
@@ -482,6 +495,12 @@ def setup_lamella(
     lamella_stages = patterning.get_milling_stages("lamella", protocol, lamella_position)
     stages = deepcopy(lamella_stages)
     n_lamella = len(stages)
+
+    settings.image.hfw = stages[0].milling.hfw # fcfg.REFERENCE_HFW_SUPER
+    settings.image.filename = f"ref_{lamella.state.stage.name}_start"
+    settings.image.save = True
+    eb_image, ib_image = acquire.take_reference_images(microscope, settings.image)
+    set_images_ui(parent_ui, eb_image, ib_image)
 
     # feature 
     if _MILL_FEATURES := method in ["autolamella-on-grid", "autolamella-waffle" ]:
@@ -572,6 +591,7 @@ def setup_lamella(
     lamella.fiducial_area, _  = _calculate_fiducial_area_v2(ib_image, 
         deepcopy(fiducial_stage.pattern.point), 
         lamella.protocol["fiducial"]["stages"][0]["height"])
+    alignment_hfw = fiducial_stage.milling.hfw
 
     # mill the fiducial
     if use_fiducial:
@@ -579,6 +599,7 @@ def setup_lamella(
         stages = update_milling_ui(fiducial_stage, parent_ui, 
             msg=f"Press Run Milling to mill the fiducial for {lamella._petname}. Press Continue when done.", 
             validate=validate)
+        alignment_hfw = stages[0].milling.hfw
 
     # set reduced area for fiducial alignment
     settings.image.reduced_area = lamella.fiducial_area
@@ -588,7 +609,7 @@ def setup_lamella(
     # for alignment
     settings.image.beam_type = BeamType.ION
     settings.image.save = True
-    settings.image.hfw = fcfg.REFERENCE_HFW_SUPER
+    settings.image.hfw =  alignment_hfw #fcfg.REFERENCE_HFW_SUPER
     settings.image.filename = f"ref_alignment"
     settings.image.autocontrast = False # disable autocontrast for alignment
     print(f"REDUCED_AREA: ", settings.image.reduced_area)
