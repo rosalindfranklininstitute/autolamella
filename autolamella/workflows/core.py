@@ -37,7 +37,8 @@ from fibsem.detection.detection import (
     LamellaBottomEdge,
     detect_features,
     DetectedFeatures,
-    VolumeBlockCentre
+    VolumeBlockCentre,
+    AdaptiveLamellaCentre,
 )
 from autolamella.ui.AutoLamellaUI import AutoLamellaUI
 from fibsem import config as fcfg
@@ -373,7 +374,24 @@ def mill_lamella(
     #### 
 
     # align sem using ml and beam shift
-    if settings.protocol["options"].get("use_sem_beam_shift_alignment", False):
+    beam_shift_align_rough = bool(settings.protocol["options"].get("use_sem_beam_shift_alignment_rough", False))
+    beam_shift_align_polish = bool(settings.protocol["options"].get("use_sem_beam_shift_alignment_polish", False))
+
+    # check if we are at the rough or polishing stage
+    align_at_rough = beam_shift_align_rough and lamella.state.stage.name == AutoLamellaWaffleStage.MillRoughCut.name
+    align_at_polish = beam_shift_align_polish and lamella.state.stage.name == AutoLamellaWaffleStage.MillPolishingCut.name
+    logging.info({"msg": "sem_beam_shift_align", "rough": align_at_rough, "polish": align_at_polish})
+
+    if align_at_rough or align_at_polish:
+
+        logging.info(f"Using sem beam shift alignment for {lamella._petname}...")
+
+        # get adaptive model # TODO: generalise this better once models are finalised
+        checkpoint = settings.protocol.get("adaptive_polish", {}).get("model_path", None)
+
+        logging.info(f"Using adaptive model for alignment: {checkpoint}")
+
+        # align sem using ml and beam shift
         lamella = align_feature_beam_shift(
             microscope,
             settings,
@@ -382,6 +400,8 @@ def mill_lamella(
             validate=validate,
             beam_type=BeamType.ELECTRON,
             hfw=settings.image.hfw,
+            feature=AdaptiveLamellaCentre(),
+            checkpoint=checkpoint,
         )
 
 
@@ -815,7 +835,8 @@ def align_feature_beam_shift(microscope: FibsemMicroscope,
                             validate: bool, 
                             beam_type: BeamType = BeamType.ELECTRON,
                             hfw: float = fcfg.REFERENCE_HFW_MEDIUM,
-                            feature: Feature = LamellaCentre()) -> Lamella:
+                            feature: Feature = LamellaCentre(), 
+                            checkpoint: str = None) -> Lamella:
     """Align the feature to the centre of the image using the beamshift."""
 
     # bookkeeping
@@ -832,7 +853,9 @@ def align_feature_beam_shift(microscope: FibsemMicroscope,
     set_images_ui(parent_ui, eb_image, ib_image)
 
     # detect
-    det = update_detection_ui(microscope, settings, features, parent_ui, validate, msg=lamella.info, position=lamella.state.microscope_state.stage_position)
+    det = update_detection_ui(microscope, settings, features, parent_ui, validate, 
+                              msg=lamella.info, position=None, 
+                              checkpoint=checkpoint)
 
     # TODO: add movement modes; stable move, vertical move, beam shift
 
