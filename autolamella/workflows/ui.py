@@ -103,7 +103,8 @@ def _update_mill_stages_ui(
         time.sleep(0.5)
 
 def update_detection_ui(
-    microscope, settings, features, parent_ui, validate: bool, msg: str = "Lamella", position: FibsemStagePosition = None,
+    microscope, settings, features, parent_ui, validate: bool, msg: str = "Lamella", 
+    position: FibsemStagePosition = None, checkpoint: str = None
 ) -> DetectedFeatures:
     feat_str = ", ".join([f.name for f in features])
     update_status_ui(parent_ui, f"{msg}: Detecting Features ({feat_str})...")
@@ -113,6 +114,7 @@ def update_detection_ui(
         settings=settings,
         features=features,
         point=position,
+        checkpoint=checkpoint,
     )
 
     if validate:
