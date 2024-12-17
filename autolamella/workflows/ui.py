@@ -1,6 +1,7 @@
 import logging
 from copy import deepcopy
 
+from fibsem import milling
 from fibsem.patterning import FibsemMillingStage
 from fibsem.structures import (
     FibsemStagePosition,
@@ -8,20 +9,29 @@ from fibsem.structures import (
     FibsemRectangle,
 )
 import time
-
-from fibsem.detection import detection
+from typing import List
+from fibsem.detection import detection, utils as det_utils
 from fibsem.detection.detection import DetectedFeatures
-from autolamella.ui.AutoLamellaUI import AutoLamellaUI
-
-
+from autolamella.ui import AutoLamellaUI
 
 # CORE UI FUNCTIONS -> PROBS SEPARATE FILE
 def _check_for_abort(parent_ui: AutoLamellaUI, msg: str = "Workflow aborted by user.") -> bool:
+    # headless mode
+    if parent_ui is None:
+        return False
+
     if parent_ui._ABORT_THREAD:
         raise InterruptedError(msg)
 
 
-def update_milling_ui(stages: list[FibsemMillingStage], parent_ui: AutoLamellaUI, msg:str, validate: bool,milling_enabled: bool = True):
+def update_milling_ui(microscope, stages: List[FibsemMillingStage], parent_ui: AutoLamellaUI, msg:str, validate: bool, milling_enabled: bool = True):
+
+    # headless mode
+    if parent_ui is None:
+        if milling_enabled:
+            milling.mill_stages(microscope=microscope, stages=stages)
+        return stages
+
     _update_mill_stages_ui(parent_ui, stages=stages)
 
     pos, neg = "Run Milling", "Continue"
@@ -40,7 +50,7 @@ def update_milling_ui(stages: list[FibsemMillingStage], parent_ui: AutoLamellaUI
         parent_ui._MILLING_RUNNING = True
         parent_ui._run_milling_signal.emit()
 
-        logging.info(f"WAITING FOR MILLING TO FINISH... ")
+        logging.info("WAITING FOR MILLING TO FINISH... ")
         while parent_ui._MILLING_RUNNING or parent_ui.image_widget.TAKING_IMAGES:
             time.sleep(1)
 
@@ -64,11 +74,11 @@ def update_milling_ui(stages: list[FibsemMillingStage], parent_ui: AutoLamellaUI
     #     update_status_ui(parent_ui, f"Milling {len(stages)} stages...") # TODO: better feedback here, change to milling tab for progress bar
     #     parent_ui._MILLING_RUNNING = True
     #     parent_ui._run_milling_signal.emit()
-        
+
     #     logging.info(f"WAITING FOR MILLING TO FINISH... ")
     #     while parent_ui._MILLING_RUNNING or parent_ui.image_widget.TAKING_IMAGES:
     #         time.sleep(1)
-        
+
     #     update_status_ui(
     #         parent_ui, f"Milling Complete: {len(stages)} stages completed."
     #     )
@@ -80,9 +90,9 @@ def update_milling_ui(stages: list[FibsemMillingStage], parent_ui: AutoLamellaUI
 
 # TODO: think this can be consolidated into mill arg for ask_user?
 def _update_mill_stages_ui(
-    parent_ui: AutoLamellaUI, stages: list[FibsemMillingStage] = None
+    parent_ui: AutoLamellaUI, stages: List[FibsemMillingStage] = None
 ):
-    _check_for_abort(parent_ui, msg = f"Workflow aborted by user.")
+    _check_for_abort(parent_ui)
 
     INFO = {
         "msg": "Updating Milling Stages",
@@ -98,12 +108,12 @@ def _update_mill_stages_ui(
 
     parent_ui.WAITING_FOR_UI_UPDATE = True
     parent_ui.ui_signal.emit(INFO)
-    logging.info(f"WAITING FOR UI UPDATE... ")
+    logging.info("WAITING FOR UI UPDATE... ")
     while parent_ui.WAITING_FOR_UI_UPDATE:
         time.sleep(0.5)
 
 def update_detection_ui(
-    microscope, settings, features, parent_ui, validate: bool, msg: str = "Lamella", position: FibsemStagePosition = None,
+    microscope, settings, features, parent_ui: AutoLamellaUI, validate: bool, msg: str = "Lamella", position: FibsemStagePosition = None,
 ) -> DetectedFeatures:
     feat_str = ", ".join([f.name for f in features])
     update_status_ui(parent_ui, f"{msg}: Detecting Features ({feat_str})...")
@@ -115,10 +125,10 @@ def update_detection_ui(
         point=position,
     )
 
-    if validate:
+    if validate and parent_ui is not None:
         ask_user(
             parent_ui,
-            msg=f"Confirm Feature Detection. Press Continue to proceed.",
+            msg="Confirm Feature Detection. Press Continue to proceed.",
             pos="Continue",
             det=det,
         )
@@ -127,9 +137,11 @@ def update_detection_ui(
 
         # I need this to happen in the parent thread for it to work correctly
         parent_ui.det_confirm_signal.emit(True)
-    
-    # TODO: set images in ui here
 
+    else:
+        det_utils.save_ml_feature_data(det)
+
+    # TODO: set images in ui here
     return det
 
 
@@ -138,7 +150,11 @@ def set_images_ui(
     eb_image: FibsemImage = None,
     ib_image: FibsemImage = None,
 ):
-    _check_for_abort(parent_ui, msg = f"Workflow aborted by user.")
+    # headless mode
+    if parent_ui is None:
+        return
+
+    _check_for_abort(parent_ui)
 
     INFO = {
         "msg": "Updating Images",
@@ -153,13 +169,17 @@ def set_images_ui(
     parent_ui.WAITING_FOR_UI_UPDATE = True
     parent_ui.ui_signal.emit(INFO)
 
-    logging.info(f"WAITING FOR UI UPDATE... ")
+    logging.info("WAITING FOR UI UPDATE... ")
     while parent_ui.WAITING_FOR_UI_UPDATE:
         time.sleep(0.5)
 
-def update_status_ui(parent_ui: AutoLamellaUI, msg: str):
+def update_status_ui(parent_ui: AutoLamellaUI, msg: str, workflow_info: str = None) -> None:
 
-    _check_for_abort(parent_ui, msg = f"Workflow aborted by user.")
+    if parent_ui is None:
+        logging.info(msg)
+        return
+
+    _check_for_abort(parent_ui)
 
     INFO = {
         "msg": msg,
@@ -170,6 +190,7 @@ def update_status_ui(parent_ui: AutoLamellaUI, msg: str):
         "ib_image": None,
         "movement": None,
         "mill": None,
+        "workflow_info": workflow_info,
     }
     parent_ui.ui_signal.emit(INFO)
 
@@ -184,6 +205,11 @@ def ask_user(
     mill: bool = None,
     det: DetectedFeatures = None,
 ) -> bool:
+
+    if parent_ui is None:
+        logging.warning(f"User input requested in headless mode: {msg}, always returning True.")
+        return True
+
     INFO = {
         "msg": msg,
         "pos": pos,
@@ -222,12 +248,14 @@ def ask_user_continue_workflow(parent_ui, msg: str = "Continue with the next sta
         ret = ask_user(parent_ui=parent_ui, msg=msg, pos="Continue", neg="Exit")
     return ret
 
-def update_alignment_area_ui(alignment_area: FibsemRectangle, parent_ui: AutoLamellaUI, 
+def update_alignment_area_ui(alignment_area: FibsemRectangle, parent_ui: AutoLamellaUI,
         msg: str = "Edit Alignment Area", validate: bool = True) -> FibsemRectangle:
     """ Update the alignment area in the UI and return the updated alignment area."""
-    _check_for_abort(parent_ui, msg = f"Workflow aborted by user.")
 
-    if not validate:
+    _check_for_abort(parent_ui)
+
+    # headless mode, return the alignment area
+    if parent_ui is None or not validate:
         return alignment_area
 
     INFO = {
@@ -248,7 +276,7 @@ def update_alignment_area_ui(alignment_area: FibsemRectangle, parent_ui: AutoLam
     while parent_ui.WAITING_FOR_USER_INTERACTION:
         time.sleep(1)
 
-    _check_for_abort(parent_ui, msg = f"Workflow aborted by user.")
+    _check_for_abort(parent_ui)
 
     INFO = {
         "msg": "Updating Milling Stages",
@@ -265,7 +293,7 @@ def update_alignment_area_ui(alignment_area: FibsemRectangle, parent_ui: AutoLam
 
     parent_ui.WAITING_FOR_UI_UPDATE = True
     parent_ui.ui_signal.emit(INFO)
-    logging.info(f"WAITING FOR UI UPDATE... ")
+    logging.info("WAITING FOR UI UPDATE... ")
     while parent_ui.WAITING_FOR_UI_UPDATE:
         time.sleep(0.5)
 
@@ -275,3 +303,12 @@ def update_alignment_area_ui(alignment_area: FibsemRectangle, parent_ui: AutoLam
     return alignment_area
 
 
+
+
+def update_experiment_ui(parent_ui: AutoLamellaUI, experiment):
+
+    # headless mode
+    if parent_ui is None:
+        return
+
+    parent_ui.update_experiment_signal.emit(experiment)

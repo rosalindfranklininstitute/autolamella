@@ -1,20 +1,27 @@
 import os
+import uuid
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
+from typing import List
 
 import fibsem.utils as utils
 import pandas as pd
 import petname
 import yaml
-from fibsem.structures import FibsemRectangle, MicroscopeState, FibsemImage, ReferenceImages
-import uuid
+from fibsem.structures import (
+    FibsemImage,
+    FibsemRectangle,
+    MicroscopeState,
+    ReferenceImages,
+)
+
 from autolamella import config as cfg
 
 
-class AutoLamellaWaffleStage(Enum):
+class AutoLamellaStage(Enum):
     SetupTrench = auto()
     ReadyTrench = auto()
     MillTrench = auto()
@@ -34,7 +41,7 @@ class AutoLamellaWaffleStage(Enum):
 @dataclass
 class LamellaState:
     microscope_state: MicroscopeState = MicroscopeState()
-    stage: AutoLamellaWaffleStage = AutoLamellaWaffleStage.SetupTrench
+    stage: AutoLamellaStage = AutoLamellaStage.SetupTrench
     start_timestamp: float = datetime.timestamp(datetime.now())
     end_timestamp: float = None
 
@@ -51,7 +58,7 @@ class LamellaState:
         state = MicroscopeState.from_dict(data["microscope_state"])
         return cls(
             microscope_state=state,
-            stage=AutoLamellaWaffleStage[data["stage"]],
+            stage=AutoLamellaStage[data["stage"]],
             start_timestamp=data["start_timestamp"],
             end_timestamp=data["end_timestamp"]
         )
@@ -63,7 +70,7 @@ class Lamella:
     path: Path = Path()
     fiducial_area: FibsemRectangle = FibsemRectangle()
     _number: int = 0
-    history: list[LamellaState] = None
+    history: List[LamellaState] = None
     _petname: str = None
     protocol: dict = None    
     _is_failure: bool = False
@@ -85,6 +92,18 @@ class Lamella:
             self.protocol = {}
         if self.history is None:
             self.history = []
+
+    @property
+    def name(self) -> str:
+        return self._petname
+    
+    @property
+    def status(self) -> str:
+        return self.state.stage.name
+    
+    @property
+    def is_failure(self) -> bool:
+        return self._is_failure
 
     def to_dict(self):
         if self.history is None:
@@ -162,7 +181,7 @@ class Lamella:
         return reference_images
     
 class Experiment: 
-    def __init__(self, path: Path = None, name: str = cfg.EXPERIMENT_NAME, program: str = "AutoLiftout", method: str = "AutoLiftout") -> None:
+    def __init__(self, path: Path = None, name: str = cfg.EXPERIMENT_NAME, program: str = "AutoLamella", method: str = "autolamella-on-grid") -> None:
 
 
         self.name: str = name
@@ -173,7 +192,7 @@ class Experiment:
         )
         self._created_at: float = datetime.timestamp(datetime.now())
 
-        self.positions: list[Lamella] = []
+        self.positions: List[Lamella] = []
 
         self.program = program
         self.method = method
@@ -196,7 +215,7 @@ class Experiment:
     def save(self) -> None:
         """Save the sample data to yaml file"""
 
-        with open(os.path.join(self.path, f"experiment.yaml"), "w") as f:
+        with open(os.path.join(self.path, "experiment.yaml"), "w") as f:
             yaml.safe_dump(self.to_dict(), f, indent=4)
 
     def __repr__(self) -> str:
@@ -298,7 +317,7 @@ class Experiment:
 
     @staticmethod
     def load(fname: Path) -> 'Experiment':
-        """Load a sample from disk."""
+        """Load an experiment from disk."""
 
         # read and open existing yaml file
         path = Path(fname).with_suffix(".yaml")
@@ -315,7 +334,8 @@ class Experiment:
         experiment._created_at = ddict.get("created_at", None)
         experiment._id = ddict.get("_id", "NULL")
         experiment.program = ddict.get("program", "AutoLamella")
-        experiment.method = ddict.get("method", "autoLamella-default") 
+        experiment.method = ddict.get("method", "autoLamella-on-grid")
+        experiment.path = os.path.dirname(fname) # TODO: make sure the paths are correctly re-assigned when loaded on a different machine
 
         # load lamella from dict
         for lamella_dict in ddict["positions"]:
@@ -326,6 +346,7 @@ class Experiment:
     
     def _create_protocol_dataframe(self) -> pd.DataFrame:
         plist = []
+        exp_name = self.name
         for lamella in self.positions:
             if lamella.protocol:
                 for k in lamella.protocol:
@@ -333,21 +354,15 @@ class Experiment:
 
                     if "stages" not in lamella.protocol[k]:
                         continue # skip non milling stages
-                    #     ddict = lamella.protocol[k]
-                    #     if not isinstance(ddict, dict):
-                    #         ddict = {k: lamella.protocol[k], "key": k, "milling_stage": 0, "lamella": lamella._petname}
-                    #     ddict["milling_stage"] = 0
-                    #     ddict["stage"] = k
-                    #     ddict["lamella"] = lamella._petname
-                    #     plist.append(deepcopy(ddict))
-
-
+      
                     else:
                         for i, ddict in enumerate(lamella.protocol[k]["stages"]):
 
                             ddict["MillingStage"] = i
                             ddict["WorkflowStage"] = k
-                            ddict["Lamella"] = lamella._petname
+                            ddict["Lamella"] = lamella.name
+                            ddict["Experiment"] = exp_name
+                            # TODO: add point information
 
                             plist.append(deepcopy(ddict))
 
@@ -358,7 +373,8 @@ class Experiment:
         cols.remove("Lamella")
         cols.remove("WorkflowStage")
         cols.remove("MillingStage")
-        cols = ["Lamella", "WorkflowStage", "MillingStage"] + cols
+        cols.remove("Experiment")
+        cols = ["Experiment", "Lamella", "WorkflowStage", "MillingStage"] + cols
         df = df[cols]
 
 
@@ -400,3 +416,13 @@ class Experiment:
                 print("KEY: ", k)
                 pprint(lamella.protocol[k]["stages"])
                 print('-'*100)
+
+    def at_stage(self, stage: AutoLamellaStage) -> List[Lamella]:
+        """Return a list of lamellas at a specific stage"""
+
+        return [lamella for lamella in self.positions if lamella.state.stage == stage]
+        
+    def at_failure(self) -> List[Lamella]:
+        """Return a list of lamellas that have failed"""
+
+        return [lamella for lamella in self.positions if lamella._is_failure]
