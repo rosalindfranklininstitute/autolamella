@@ -1,13 +1,14 @@
-import os
-import json
 import datetime
+import json
+import os
+from copy import deepcopy
+from pathlib import Path
+from typing import Tuple
 
 import pandas as pd
 
-from copy import deepcopy
-from pathlib import Path
-from autolamella.structures import Lamella, Experiment, LamellaState 
-  
+from autolamella.structures import Experiment, Lamella, LamellaState
+
 
 def parse_msg(msg: str):
     """parse message json"""
@@ -33,7 +34,7 @@ def get_message(line) -> str:
     ].strip()  # should just be the message # TODO: need to check the delimeter character...
     return msg 
 
-def parse_line(line: str) -> tuple[str, str, str]:
+def parse_line(line: str) -> Tuple[str, str, str]:
     """parse a line from the log file into a tuple of timestamp, function, and message"""
 
     tsd = get_timestamp(line)
@@ -119,7 +120,8 @@ def calculate_statistics_dataframe(path: Path, encoding: str = "cp1252"):
                     df_beam_shift.append(deepcopy(msgd))
 
 
-                if "confirm_button" in func: # DETECTION INTERACTION
+                # TODO: confirm this parses the correct data
+                if "confirm_button" in func or "save_ml" in func: # DETECTION INTERACTION
                     # log detection data
                     msgd = parse_msg(msg)
                     detd = deepcopy(msgd)
