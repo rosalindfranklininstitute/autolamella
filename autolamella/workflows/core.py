@@ -45,22 +45,6 @@ from autolamella.structures import (
 )
 from autolamella.protocol.validation import DEFAULT_ALIGNMENT_AREA, DEFAULT_FIDUCIAL_PROTOCOL
 from autolamella.ui import AutoLamellaUI
-
-from fibsem.detection import detection
-from fibsem.detection.detection import (
-    Feature,
-    ImageCentre,
-    LamellaCentre,
-    LamellaLeftEdge,
-    LamellaRightEdge,
-    LamellaTopEdge,
-    LamellaBottomEdge,
-    detect_features,
-    DetectedFeatures,
-    VolumeBlockCentre
-)
-from autolamella.ui.AutoLamellaUI import AutoLamellaUI
-from fibsem import config as fcfg
 from autolamella.workflows import actions
 from autolamella.workflows.ui import (
     ask_user,
