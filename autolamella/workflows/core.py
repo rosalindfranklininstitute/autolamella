@@ -6,7 +6,6 @@ from copy import deepcopy
 from fibsem.structures import ImageSettings
 
 from autolamella.structures import (
-    AutoLamellaWaffleStage,
     Experiment,
     Lamella,
 )
