@@ -86,6 +86,9 @@ try:
 except ImportError as e:
     logging.debug(f"Could not import list_available_checkpoints from fibsem.segmentation.utils: {e}")
     AUTOLAMELLA_CHECKPOINTS = []
+except Exception as e:
+    logging.debug(f"Could not load checkpoints: {e}")
+    AUTOLAMELLA_CHECKPOINTS = []
 
 CONFIGURATION = {
     "TABS_ID": {
