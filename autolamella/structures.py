@@ -300,7 +300,7 @@ class Lamella:
 
     def update_protocol(self, protocol: dict) -> None:
         # Sets imaging paths to be the lamella path unless already set
-        for step in protocol.values():
+        for step in protocol["milling"].values():
             for stage in step:
                 imaging_settings = stage.get("imaging")
                 if imaging_settings is not None:
