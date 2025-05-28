@@ -303,10 +303,7 @@ class Lamella:
         for step in protocol.values():
             for stage in step:
                 imaging_settings = stage.get("imaging")
-                if (
-                    imaging_settings is not None
-                    and imaging_settings.get("path") is None
-                ):
+                if imaging_settings is not None:
                     imaging_settings["path"] = self.path
 
         self.protocol = protocol
