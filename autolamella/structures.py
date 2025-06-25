@@ -992,8 +992,8 @@ class AutoLamellaProtocol(FibsemProtocol):
         try:
             from autolamella.protocol.validation import validate_and_convert_protocol
             ddict = validate_and_convert_protocol(ddict)
-        except Exception as e:
-            logging.debug(f"Error converting protocol: {e}")
+        except Exception:
+            logging.warning("Error converting protocol", exc_info=True)
             ddict = tmp_ddict
         
         return AutoLamellaProtocol.from_dict(ddict)
