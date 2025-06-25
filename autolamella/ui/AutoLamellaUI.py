@@ -1474,12 +1474,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
 
         # validate the protocol and up-convert it
         self.protocol = AutoLamellaProtocol.load(PROTOCOL_PATH)
-        self.protocol.configuration = deepcopy(self.settings)
-
-        # TODO:
-        # replace self.settings with self.protocol
-        # use self.protocol.configuration to store settings
-        # deprecate self.settings
 
         self.is_protocol_loaded = True
         self.update_protocol_ui()
