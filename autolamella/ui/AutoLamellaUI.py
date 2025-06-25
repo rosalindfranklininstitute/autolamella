@@ -755,17 +755,24 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
         # automatically re-load protocol if available
         if not new_experiment and self.settings is not None:
             # try to load protocol from file
-            PROTOCOL_PATH = os.path.join(self.experiment.path, "protocol.yaml")
-            if os.path.exists(PROTOCOL_PATH):
-                self.protocol = AutoLamellaProtocol.load(PROTOCOL_PATH)
-                self.experiment.method = self.protocol.method
-                self.is_protocol_loaded = True
+            protocol_path = os.path.join(self.experiment.path, "protocol.yaml")
+            if os.path.exists(protocol_path):
+                self._load_protocol(protocol_path)
                 self.update_protocol_ui()
 
         self.update_lamella_combobox()
         self.update_ui()
 
     ##################################################################
+
+    def _load_protocol(self, protocol_path: str) -> None:
+        protocol_dict = AutoLamellaProtocol.load_protocol_dict(protocol_path)
+        configuration = deepcopy(self.settings.to_dict())
+        configuration.update(protocol_dict.get("configuration", {}))
+        protocol_dict["configuration"] = configuration
+        self.protocol = AutoLamellaProtocol.from_dict(protocol_dict)
+        self.experiment.method = self.protocol.method
+        self.is_protocol_loaded = True
 
     # TODO: move this to system wideget??
     # TODO: create a dialog to get the user to connect to microscope and create load experiment before continuing
@@ -1463,21 +1470,21 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
             )
             return
 
-        PROTOCOL_PATH = fui.open_existing_file_dialog(
+        protocol_path = fui.open_existing_file_dialog(
             msg="Select a protocol file", path=cfg.PROTOCOL_PATH, parent=self
         )
 
-        if PROTOCOL_PATH == "":
+        if protocol_path == "":
             napari.utils.notifications.show_info("No path selected")
             return
 
         # validate the protocol and up-convert it
-        self.protocol = AutoLamellaProtocol.load(PROTOCOL_PATH)
+        self._load_protocol(protocol_path)
 
         self.is_protocol_loaded = True
         self.update_protocol_ui()
         napari.utils.notifications.show_info(
-            f"Loaded Protocol from {os.path.basename(PROTOCOL_PATH)}"
+            f"Loaded Protocol from {os.path.basename(protocol_path)}"
         )
 
         # save a copy of the protocol to the experiment.path

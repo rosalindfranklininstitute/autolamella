@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Any
 
 import pandas as pd
 import petname
@@ -983,8 +983,7 @@ class AutoLamellaProtocol(FibsemProtocol):
             yaml.safe_dump(self.to_dict(), f, indent=4)
     
     @staticmethod
-    def load(path: Path) -> 'AutoLamellaProtocol':
-        """Load the protocol from disk."""
+    def load_protocol_dict(path: Path) -> Dict[str, Any]:
         with open(path, "r") as f:
             ddict = yaml.safe_load(f)
 
@@ -995,5 +994,10 @@ class AutoLamellaProtocol(FibsemProtocol):
         except Exception:
             logging.warning("Error converting protocol", exc_info=True)
             ddict = tmp_ddict
-        
+        return ddict
+
+    @staticmethod
+    def load(path: Path) -> 'AutoLamellaProtocol':
+        """Load the protocol from disk."""
+        ddict = AutoLamellaProtocol.load_protocol_dict(path)
         return AutoLamellaProtocol.from_dict(ddict)
