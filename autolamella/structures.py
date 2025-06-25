@@ -971,7 +971,7 @@ class AutoLamellaProtocol(FibsemProtocol):
             name=ddict["name"],
             method=method,
             supervision=supervision_tasks,
-            configuration=ddict.get("configuration", {}),
+            configuration=MicroscopeSettings.from_dict(ddict.get("configuration", {})),
             options=AutoLamellaProtocolOptions.from_dict(ddict["options"]),
             milling={k: get_milling_stages(k, ddict["milling"]) for k in ddict["milling"]},
             tmp=ddict["tmp"],

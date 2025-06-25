@@ -758,7 +758,6 @@ class AutoLamellaUI(AutoLamellaMainUI.Ui_MainWindow, QtWidgets.QMainWindow):
             PROTOCOL_PATH = os.path.join(self.experiment.path, "protocol.yaml")
             if os.path.exists(PROTOCOL_PATH):
                 self.protocol = AutoLamellaProtocol.load(PROTOCOL_PATH)
-                self.protocol.configuration = deepcopy(self.settings)
                 self.experiment.method = self.protocol.method
                 self.is_protocol_loaded = True
                 self.update_protocol_ui()
